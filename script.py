@@ -43,7 +43,7 @@ def git_commit_and_push(file_path: Path) -> None:
     try:
         subprocess.run(["git", "commit", "-m", message], check=True)
         # Explicitly push to origin main to avoid detached head issues
-        subprocess.run(["git", "push", "origin", "main"], check=True)
+        subprocess.run(["git", "push", "origin", "master"], check=True)
         logging.info(f"Commit successful: {message}")
     except subprocess.CalledProcessError:
         logging.warning("Nothing to commit or push failed. Checking logic recommended.")
