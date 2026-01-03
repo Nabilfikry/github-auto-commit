@@ -1,85 +1,94 @@
-import os
+import logging
 import random
-import datetime
 import subprocess
+import sys
+from datetime import datetime
+from pathlib import Path
 
-# Config
-LOG_FILE = "log.txt"
+# Configuration
+LOG_FILE_PATH = Path("log.txt")
 START_HOUR = 8   # 08:00 UTC
 END_HOUR = 22    # 22:00 UTC
+PROBABILITY = 0.20 # 20% chance per run
 
-def git_commit():
-    """Performs the git add, commit, and push operations."""
+# Setup logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+def run_command(command: list) -> None:
+    """Executes a shell command with error handling."""
     try:
-        subprocess.run(["git", "config", "user.name", "github-actions[bot]"], check=True)
-        subprocess.run(["git", "config", "user.email", "github-actions[bot]@users.noreply.github.com"], check=True)
-        
-        subprocess.run(["git", "add", LOG_FILE], check=True)
-        
-        messages = [
-            "Update daily log",
-            "Log entry",
-            "Daily update", 
-            "Routine check",
-            "Update status",
-            "Automated log"
-        ]
-        commit_message = random.choice(messages)
-        
-        subprocess.run(["git", "commit", "-m", commit_message], check=True)
-        subprocess.run(["git", "push"], check=True)
-        print(f"✅ Commit successful: {commit_message}")
+        subprocess.run(command, check=True)
     except subprocess.CalledProcessError as e:
-        print(f"❌ Error during git operation: {e}")
-        exit(1)
+        logging.error(f"Command failed: {' '.join(command)}")
+        sys.exit(1)
+
+def git_commit_and_push(file_path: Path) -> None:
+    """Stages, commits, and pushes changes to the repository."""
+    # Configure git specific to this run (idempotent)
+    run_command(["git", "config", "user.name", "github-actions[bot]"])
+    run_command(["git", "config", "user.email", "github-actions[bot]@users.noreply.github.com"])
+    
+    run_command(["git", "add", str(file_path)])
+    
+    commit_messages = [
+        "Update daily log",
+        "Log entry",
+        "Daily update", 
+        "Routine check",
+        "Update status",
+        "Automated log"
+    ]
+    message = random.choice(commit_messages)
+    
+    try:
+        subprocess.run(["git", "commit", "-m", message], check=True)
+        # Explicitly push to origin main to avoid detached head issues
+        subprocess.run(["git", "push", "origin", "main"], check=True)
+        logging.info(f"Commit successful: {message}")
+    except subprocess.CalledProcessError:
+        logging.warning("Nothing to commit or push failed. Checking logic recommended.")
+
+def should_commit(current_hour: int, has_committed: bool) -> bool:
+    """Decides whether to commit based on time and probability."""
+    if has_committed:
+        logging.info("Already committed today. Skipping.")
+        return False
+
+    if current_hour >= END_HOUR:
+        logging.info("Last chance of the day. Forcing commit.")
+        return True
+    
+    if current_hour < START_HOUR:
+        logging.info("Outside valid hours. Skipping.")
+        return False
+        
+    if random.random() < PROBABILITY:
+        logging.info("Random check passed. Proceeding with commit.")
+        return True
+    
+    logging.info("Random check failed. Waiting for next schedule.")
+    return False
 
 def main():
-    now = datetime.datetime.utcnow()
+    # Use UTC explicitly as GitHub Actions runs in UTC
+    now = datetime.utcnow()
     current_hour = now.hour
     today_str = now.strftime("%Y-%m-%d")
 
-    # 1. Read last commit date
-    if not os.path.exists(LOG_FILE):
-        with open(LOG_FILE, "w") as f:
-            f.write("2000-01-01 00:00:00")
-    
-    with open(LOG_FILE, "r") as f:
-        last_content = f.read().strip()
-    
-    # Check if already committed today
-    if today_str in last_content:
-        print("⏭️  Already committed today. Skipping.")
-        exit(0)
+    # Ensure log file exists
+    if not LOG_FILE_PATH.exists():
+        LOG_FILE_PATH.touch()
 
-    # 2. Logic to decide whether to commit NOW
-    # If it's the last chance (>= END_HOUR), force commit.
-    should_commit = False
-    
-    if current_hour >= END_HOUR:
-        print("⚠️  Last chance of the day! Forcing commit.")
-        should_commit = True
-    elif current_hour < START_HOUR:
-        print("💤 Too early. Sleeping.")
-        should_commit = False
-    else:
-        # Probability check
-        # chance increases as hours go by? OR just flat chance?
-        # If we run every hour from 8 to 22 (15 runs).
-        # We need at least one success.
-        # Simple random: 20% chance per hour is usually enough to hit once.
-        if random.random() < 0.20:
-             print("🎲 Random check passed! Committing.")
-             should_commit = True
-        else:
-             print("🎲 Random check failed. Waiting for next hour.")
+    content = LOG_FILE_PATH.read_text(encoding="utf-8")
+    has_committed = today_str in content
 
-    # 3. Execute Commit
-    if should_commit:
+    if should_commit(current_hour, has_committed):
         timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
-        with open(LOG_FILE, "w") as f:
-            f.write(timestamp)
+        # Append mode 'a' ensures file modifications are always detected by git
+        with LOG_FILE_PATH.open("a", encoding="utf-8") as f:
+            f.write(f"{timestamp}\n")
         
-        git_commit()
+        git_commit_and_push(LOG_FILE_PATH)
 
 if __name__ == "__main__":
     main()
