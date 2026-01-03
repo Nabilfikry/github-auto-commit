@@ -1,0 +1,27 @@
+name: Auto Commit Bot
+
+on:
+  schedule:
+    # Run every hour from 08:00 UTC to 23:00 UTC
+    - cron: "0 8-23 * * *"
+  workflow_dispatch: # Allows manual trigger for testing
+
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Essential for pushing commits
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Run Auto Commit Script
+        run: python script.py
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
